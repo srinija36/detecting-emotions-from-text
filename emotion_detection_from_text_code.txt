@@ -1,0 +1,92 @@
+pip install emoji #cell 1
+import pandas as pd #cell 2
+import re
+import emoji
+import torch
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.svm import SVC
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report
+from sklearn.multiclass import OneVsRestClassifier
+from transformers import BertTokenizer, pipeline
+from torch.utils.data import DataLoader, Dataset
+import torch.nn as nn
+import torch.optim as optim
+from tabulate import tabulate
+
+# Load the dataset
+df = pd.read_csv("/content/preprocessed_dataset (1).csv")
+
+# Define label columns
+label_columns = ["sarcasm", "joy", "trust", "fear", "surprise", "sadness", "disgust", "anger", "anticipation"]
+
+# Ensure all required columns exist in dataset
+for col in label_columns:
+    if col not in df.columns:
+        df[col] = 0
+
+df[label_columns] = df[label_columns].fillna(0)
+
+def preprocess_text(text):
+    text = str(text).lower()
+    text = re.sub(r'http\S+|www\S+', '', text)  # Remove URLs
+    text = re.sub(r'@\w+', '', text)  # Remove mentions
+    text = emoji.demojize(text, delimiters=(" ", " "))  # Convert emojis to text labels
+    text = re.sub(r'[^a-zA-Z0-9\s]', '', text)  # Remove special characters
+    return text
+
+df["Tweet"] = df["Tweet"].apply(preprocess_text)
+
+# Train-test split
+X_train, X_test, y_train, y_test = train_test_split(
+    df["Tweet"], df[label_columns], test_size=0.2, random_state=42
+)
+
+# Reduce TF-IDF feature size
+vectorizer = TfidfVectorizer(max_features=2000, stop_words="english")
+X_train_tfidf = vectorizer.fit_transform(X_train)
+X_test_tfidf = vectorizer.transform(X_test)
+
+# Train SVM model with OneVsRestClassifier
+svm_model = OneVsRestClassifier(SVC(kernel='linear', probability=True))
+svm_model.fit(X_train_tfidf, y_train)
+
+# Train Random Forest model with fewer estimators
+rf_model = OneVsRestClassifier(RandomForestClassifier(n_estimators=50, random_state=42))
+rf_model.fit(X_train_tfidf, y_train)
+
+# Load a Pretrained Emotion Detection Model
+emotion_classifier = pipeline("text-classification", model="joeddav/distilbert-base-uncased-go-emotions-student", top_k=None)
+
+def predict_emotion(text):
+    text = preprocess_text(text)
+    tfidf_features = vectorizer.transform([text])
+    svm_pred = svm_model.predict(tfidf_features)
+    rf_pred = rf_model.predict(tfidf_features)
+
+    bert_pred = emotion_classifier(text)[0]  # Use pretrained model for BERT predictions
+
+    # Filter out low confidence emotions and normalize
+    filtered_bert_pred = {entry['label']: entry['score'] for entry in bert_pred if entry['score'] > 0.01}
+    total_score = sum(filtered_bert_pred.values())
+    normalized_bert_pred = {k: round((v / total_score) * 100, 2) for k, v in filtered_bert_pred.items()}
+
+    # Keep only top 3 emotions
+    sorted_bert_pred = dict(sorted(normalized_bert_pred.items(), key=lambda item: item[1], reverse=True)[:3])
+
+    return {
+        "SVM": svm_pred.tolist(),
+        "Random Forest": rf_pred.tolist(),
+        "BERT": sorted_bert_pred
+    }
+
+# User Input for Evaluation
+while True:
+    user_text = input("Enter a sentence to analyze emotions (or type 'exit' to quit): ")
+    if user_text.lower() == 'exit':
+        break
+    result = predict_emotion(user_text)
+    print("\nPredicted Emotions (BERT Model):")
+    print(tabulate(result["BERT"].items(), headers=["Emotion", "Confidence (%)"], tablefmt="grid"))
