@@ -1,4 +1,5 @@
 pip install emoji #cell 1
+
 import pandas as pd #cell 2
 import re
 import emoji
@@ -17,7 +18,7 @@ import torch.optim as optim
 from tabulate import tabulate
 
 # Load the dataset
-df = pd.read_csv("/content/preprocessed_dataset (1).csv")
+df = pd.read_csv("/content/preprocessed_dataset (1) (1).csv")
 
 # Define label columns
 label_columns = ["sarcasm", "joy", "trust", "fear", "surprise", "sadness", "disgust", "anger", "anticipation"]
@@ -57,6 +58,19 @@ svm_model.fit(X_train_tfidf, y_train)
 rf_model = OneVsRestClassifier(RandomForestClassifier(n_estimators=50, random_state=42))
 rf_model.fit(X_train_tfidf, y_train)
 
+#cell 3
+from sklearn.metrics import classification_report
+# SVM evaluation
+svm_pred = svm_model.predict(X_test_tfidf)
+print("=== SVM Performance on Test Data ===")
+print(classification_report(y_test, svm_pred, target_names=label_columns, zero_division=0))
+
+# Random Forest evaluation
+rf_pred = rf_model.predict(X_test_tfidf)
+print("=== Random Forest Performance on Test Data ===")
+print(classification_report(y_test, rf_pred, target_names=label_columns, zero_division=0))
+
+#cell - 4
 # Load a Pretrained Emotion Detection Model
 emotion_classifier = pipeline("text-classification", model="joeddav/distilbert-base-uncased-go-emotions-student", top_k=None)
 
@@ -66,7 +80,7 @@ def predict_emotion(text):
     svm_pred = svm_model.predict(tfidf_features)
     rf_pred = rf_model.predict(tfidf_features)
 
-    bert_pred = emotion_classifier(text)[0]  # Use pretrained model for BERT predictions
+    bert_pred = emotion_classifier(text)[0] # Use pretrained model for BERT predictions
 
     # Filter out low confidence emotions and normalize
     filtered_bert_pred = {entry['label']: entry['score'] for entry in bert_pred if entry['score'] > 0.01}
@@ -82,6 +96,8 @@ def predict_emotion(text):
         "BERT": sorted_bert_pred
     }
 
+
+#cell - 5
 # User Input for Evaluation
 while True:
     user_text = input("Enter a sentence to analyze emotions (or type 'exit' to quit): ")
